@@ -1,9 +1,6 @@
 /* my 1st proto-game in C yay! C99 btw
  *
- *      Danilo Masic apr-sep 2021
- *      license by Joe Mamma
- *      music by Danilo
- *
+ *      Danilo Masic apr-sep 2021, oct 2024
  *      depends: libsdl2
  */
 
@@ -48,11 +45,10 @@ Uint32 *pix_img = NULL;
 float cylis[CYLIS_NUM][2];
 
 
-/* prototypes */
 void raycast(float, float, const float *);
 int edge_detected(float *, float, float);
 int cyli_detected(float, float);
-void update_cylis();
+void update_cylis(void);
 Uint32 render_shade(float);
 
 
@@ -64,9 +60,9 @@ int main(void)
     u_vect[0] = cos(angle);
     u_vect[1] = sin(angle);
     SDL_Event event;
-    
+
     srand((unsigned) time(NULL));
-    
+
     /* create cylinders outside blocks */
     for (int i = 0; i < CYLIS_NUM; ++i) {
         do {
@@ -74,17 +70,18 @@ int main(void)
             cylis[i][1] = RAND_FL(0, MAP_Y_SIZE);
         } while (map[(int) cylis[i][0]][(int) cylis[i][1]] == 1);
     }
-    
+
     if (SDL_Init(SDL_INIT_EVERYTHING) != FALSE) {
         fprintf(stderr, "error initializing SDL: %s\n", SDL_GetError());
         exit(1);
     }
+
                     /* rate, format (CTN), chn, buff-size */
     if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 2<<10) != FALSE) {
         fprintf(stderr, "error opening audio mixer: %s\n", Mix_GetError());
         exit(1);
     }
-    
+
     Mix_Chunk *music = NULL;
     music = Mix_LoadWAV("./sounds/music.wav");
     if (music == NULL) {
@@ -92,7 +89,7 @@ int main(void)
         fprintf(stderr, "%s\n", Mix_GetError());
         exit(1);
     }
-    
+
     Mix_Chunk *move_sound = NULL;
     move_sound = Mix_LoadWAV("./sounds/move.wav");
     if (move_sound == NULL) {
@@ -100,28 +97,27 @@ int main(void)
         fprintf(stderr, "%s\n", Mix_GetError());
         exit(1);
     }
-    
+
     music_chn = Mix_PlayChannel(-1, music, -1);
     if (music_chn == -1) {
         printf("Unable to play WAV file: %s\n", Mix_GetError());
     }
-    
+
     SDL_Window *win = SDL_CreateWindow("GAME",
                                        SDL_WINDOWPOS_CENTERED,
                                        SDL_WINDOWPOS_CENTERED,
                                        WIDTH, HEIGHT, 0);
-    
+
     SDL_Renderer *renderer = SDL_CreateRenderer(win, -1, 0);
     /* r_flags instead of 0 */
-    
+
     SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888,
         SDL_TEXTUREACCESS_STATIC, WIDTH, HEIGHT);
-    
-    
+
     pix_img = (Uint32 *) calloc(HEIGHT * WIDTH, sizeof(Uint32));
-    
+
     raycast(x_pos, y_pos, u_vect); /* initial screen */
-    
+
     while (!close) {
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -165,27 +161,27 @@ int main(void)
             }
         }
         SDL_UpdateTexture(texture, NULL, pix_img, WIDTH * sizeof(Uint32));
-        
+
         update_cylis();
         raycast(x_pos, y_pos, u_vect);
-        
+
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
         SDL_RenderPresent(renderer);
         SDL_Delay(100);
     }
-    
+
     Mix_HaltChannel(-1); /* stop all channels */
     Mix_FreeChunk(music);
     Mix_FreeChunk(move_sound);
     Mix_CloseAudio();
-    
+
     free(pix_img);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(win);
     SDL_Quit();
-    
+
     return 0;
 }
 
@@ -193,7 +189,7 @@ void raycast(float x_pos, float y_pos, const float *u_vect)
 {
     float render_vector[2], scaled_r_v[2];
     /* the vector from the viewer to the pixel on the virtual screen */
-    
+
     for (int pix=0; pix<WIDTH; ++pix) {
         float lambda = 1;   /* for scaling render_vector */
         /* first we set the render vector with on the virtual screen,
@@ -209,34 +205,34 @@ void raycast(float x_pos, float y_pos, const float *u_vect)
         render_vector[1] += u_vect[1] * SCR_D;
         /* now we have the vector that goes from the viewer
            to the pixel of the screen on the map */
-        
+
         while (lambda < 2 * MAP_X_SIZE / SCR_D) {
             scaled_r_v[0] = lambda * render_vector[0];
             scaled_r_v[1] = lambda * render_vector[1];
-            
+
             if (edge_detected(scaled_r_v, x_pos, y_pos) ||
                 cyli_detected(scaled_r_v[0] + x_pos, scaled_r_v[1] + y_pos)) {
                 /* distance = ||scaled_r_v|| */
                 float distance =  hypot(scaled_r_v[0], scaled_r_v[1]);
-                
+
                 /* greyscale luminosity of the wall by distance */
                 float shade = sqrt(SCR_D / (distance));
-                
+
                 /* height of the wall to be drawn by distance */
                 float height_scale = 1 / (distance);
-                
+
                 /* actual pixel height of height_scale */
                 int start_y = (int)(HEIGHT * 0.5 * (1 - 1.4 *
                                                SCR_D * height_scale));
                 int stop_y  = (int)(HEIGHT * 0.5 * (1 + 1.4 *
                                                SCR_D * height_scale));
-                
+
                 /* keep start_y & stop_y inside the screen range */
                 if (start_y < 0)
                     start_y = 0;
                 if (stop_y > HEIGHT)
                     stop_y = HEIGHT;
-                
+
                 /* draw the vertical line */
                 for (int y=0; y<HEIGHT; ++y) {
                     if (start_y <= y && y < stop_y)
@@ -259,10 +255,10 @@ int edge_detected(float *v, float x0, float y0)
 {
     float x = round(v[0] + x0);
     float y = round(v[1] + y0);
-    
+
     if (0 <= x && x < MAP_X_SIZE && 0 <= y && y < MAP_Y_SIZE)
         return map[(int)y][(int)x];
-    
+
     return 0;
 }
 
@@ -281,11 +277,10 @@ Uint32 render_shade(float scale)
     return (int_sc<<16) | (int_sc<<8) | int_sc;
 }
 
-void update_cylis()
+void update_cylis(void)
 {
     for (int i = 0; i < CYLIS_NUM; ++i) {
         cylis[i][0] += RAND_FL(-1E-1, 1E-1);
         cylis[i][1] += RAND_FL(-1E-1, 1E-1);
     }
 }
-
