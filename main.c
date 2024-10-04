@@ -6,13 +6,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <math.h>
 #include <time.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
 
-#define TRUE        1
-#define FALSE       0
 #define HEIGHT      720
 #define WIDTH       960
 #define VEL         0.33f   // w-s step
@@ -27,7 +27,7 @@
 #define RAND_FL(min, max)   (min + (rand() / (float) RAND_MAX) * (max - min))
 
 /* global vars */
-static unsigned char map[MAP_Y_SIZE][MAP_X_SIZE] =
+static uint8_t map[MAP_Y_SIZE][MAP_X_SIZE] =
 {
   {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
   {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
@@ -46,21 +46,23 @@ float cylis[CYLIS_NUM][2];
 
 
 void raycast(float, float, const float *);
-int edge_detected(float *, float, float);
-int cyli_detected(float, float);
+bool edge_detected(float *, float, float);
+bool cyli_detected(float, float);
 void update_cylis(void);
 Uint32 render_shade(float);
 
 
 int main(void)
 {
-    int close = FALSE, music_chn;
+    bool close = false;
+    int music_chn;
     float x_pos = 4.5, y_pos = 11, angle = -3.141592 / 2;
     float u_vect[2]; /* unit vector, changed by angle */
     u_vect[0] = cos(angle);
     u_vect[1] = sin(angle);
     SDL_Event event;
 
+    /* seed random */
     srand((unsigned) time(NULL));
 
     /* create cylinders outside blocks */
@@ -71,13 +73,13 @@ int main(void)
         } while (map[(int) cylis[i][0]][(int) cylis[i][1]] == 1);
     }
 
-    if (SDL_Init(SDL_INIT_EVERYTHING) != FALSE) {
+    if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
         fprintf(stderr, "error initializing SDL: %s\n", SDL_GetError());
         exit(1);
     }
 
                     /* rate, format (CTN), chn, buff-size */
-    if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 2<<10) != FALSE) {
+    if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 2<<10) != 0) {
         fprintf(stderr, "error opening audio mixer: %s\n", Mix_GetError());
         exit(1);
     }
@@ -115,6 +117,10 @@ int main(void)
         SDL_TEXTUREACCESS_STATIC, WIDTH, HEIGHT);
 
     pix_img = (Uint32 *) calloc(HEIGHT * WIDTH, sizeof(Uint32));
+    if (pix_img == NULL) {
+        fprintf(stderr, "could not allocate\n");
+        exit(1);
+    }
 
     raycast(x_pos, y_pos, u_vect); /* initial screen */
 
@@ -122,7 +128,7 @@ int main(void)
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
-                    close = TRUE;
+                    close = true;
                     break;
                 case SDL_KEYDOWN:
                     Mix_PlayChannel(-1, move_sound, 0);
@@ -150,7 +156,7 @@ int main(void)
                             //raycast(x_pos, y_pos, u_vect);
                             break;
                         case SDLK_q:
-                            close = TRUE;
+                            close = true;
                             break;
                         default:
                             break;
@@ -251,24 +257,22 @@ void raycast(float x_pos, float y_pos, const float *u_vect)
     }
 }
 
-int edge_detected(float *v, float x0, float y0)
+bool edge_detected(float *v, float x0, float y0)
 {
-    float x = round(v[0] + x0);
-    float y = round(v[1] + y0);
-
+    int x = round(v[0] + x0);
+    int y = round(v[1] + y0);
     if (0 <= x && x < MAP_X_SIZE && 0 <= y && y < MAP_Y_SIZE)
-        return map[(int)y][(int)x];
-
-    return 0;
+        return (bool) map[y][x];
+    return false;
 }
 
-int cyli_detected(float x, float y)
+bool cyli_detected(float x, float y)
 {
     for (int i = 0; i < CYLIS_NUM; ++i) {
         if (hypot(cylis[i][0] - x, cylis[i][1] - y) < 0.2)
-            return 1;
+            return true;
     }
-    return 0;
+    return false;
 }
 
 Uint32 render_shade(float scale)
