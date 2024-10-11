@@ -26,6 +26,8 @@
 
 #define RAND_FL(min, max)   (min + (rand() / (float) RAND_MAX) * (max - min))
 
+typedef unsigned int uint;
+
 /* global vars */
 static uint8_t map[MAP_Y_SIZE][MAP_X_SIZE] =
 {
@@ -45,7 +47,11 @@ Uint32 *pix_img = NULL;
 float cylis[CYLIS_NUM][2];
 
 
-void raycast(float, float, const float *);
+void raycast(const float [2], const float *);
+void raycast_column(const float [2], const float *, uint);
+void draw_collision(const float [2], uint);
+void draw_vline(uint, int, int, float);
+void black_vline(uint);
 bool edge_detected(float *, float, float);
 bool cyli_detected(float, float);
 void update_cylis(void);
@@ -56,7 +62,8 @@ int main(void)
 {
     bool close = false;
     int music_chn;
-    float x_pos = 4.5, y_pos = 11, angle = -3.141592 / 2;
+    float pos[2] = {4.5, 11};
+    float angle = -3.141592 / 2;
     float u_vect[2]; /* unit vector, changed by angle */
     u_vect[0] = cos(angle);
     u_vect[1] = sin(angle);
@@ -122,7 +129,7 @@ int main(void)
         exit(1);
     }
 
-    raycast(x_pos, y_pos, u_vect); /* initial screen */
+    raycast(pos, u_vect); /* initial screen */
 
     while (!close) {
         while (SDL_PollEvent(&event)) {
@@ -134,13 +141,13 @@ int main(void)
                     Mix_PlayChannel(-1, move_sound, 0);
                     switch (event.key.keysym.sym) {
                         case SDLK_w:
-                            x_pos += VEL * u_vect[0];
-                            y_pos += VEL * u_vect[1];
+                            pos[0] += VEL * u_vect[0];
+                            pos[1] += VEL * u_vect[1];
                             //raycast(x_pos, y_pos, u_vect);
                             break;
                         case SDLK_s:
-                            x_pos -= VEL * u_vect[0];
-                            y_pos -= VEL * u_vect[1];
+                            pos[0] -= VEL * u_vect[0];
+                            pos[1] -= VEL * u_vect[1];
                             //raycast(x_pos, y_pos, u_vect);
                             break;
                         case SDLK_a:
@@ -169,7 +176,7 @@ int main(void)
         SDL_UpdateTexture(texture, NULL, pix_img, WIDTH * sizeof(Uint32));
 
         update_cylis();
-        raycast(x_pos, y_pos, u_vect);
+        raycast(pos, u_vect);
 
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
@@ -191,70 +198,87 @@ int main(void)
     return 0;
 }
 
-void raycast(float x_pos, float y_pos, const float *u_vect)
+void raycast(const float pos[2], const float *u_vect)
+{
+    for (uint x = 0; x < WIDTH; ++x)
+        raycast_column(pos, u_vect, x);
+}
+
+void raycast_column(const float pos[2], const float *u_vect, uint x)
 {
     float render_vector[2], scaled_r_v[2];
     /* the vector from the viewer to the pixel on the virtual screen */
+    float lambda = 1;   /* for scaling render_vector */
+    /* first we set the render vector with on the virtual screen,
+       it is perpendicular to the u_vect,
+       and the dummy scales it to the size of the screen,
+       with the center of the screen onto the viewer */
+    float dummy = SCR_W * (0.5f - x / (float) WIDTH);
+    render_vector[0] = - u_vect[1] * dummy;
+    render_vector[1] =   u_vect[0] * dummy;
+    /* now we translate it to the SCR_D distance,
+       in the direction of u_vect */
+    render_vector[0] += u_vect[0] * SCR_D;
+    render_vector[1] += u_vect[1] * SCR_D;
+    /* now we have the vector that goes from the viewer
+       to the pixel of the screen on the map */
 
-    for (int pix=0; pix<WIDTH; ++pix) {
-        float lambda = 1;   /* for scaling render_vector */
-        /* first we set the render vector with on the virtual screen,
-           it is perpendicular to the u_vect,
-           and the dummy scales it to the size of the screen,
-           with the center of the screen onto the viewer */
-        float dummy = SCR_W * (0.5f - pix / (float) WIDTH);
-        render_vector[0] = - u_vect[1] * dummy;
-        render_vector[1] =   u_vect[0] * dummy;
-        /* now we translate it to the SCR_D distance,
-           in the direction of u_vect */
-        render_vector[0] += u_vect[0] * SCR_D;
-        render_vector[1] += u_vect[1] * SCR_D;
-        /* now we have the vector that goes from the viewer
-           to the pixel of the screen on the map */
+    while (lambda < 2 * MAP_X_SIZE / SCR_D) {
+        scaled_r_v[0] = lambda * render_vector[0];
+        scaled_r_v[1] = lambda * render_vector[1];
 
-        while (lambda < 2 * MAP_X_SIZE / SCR_D) {
-            scaled_r_v[0] = lambda * render_vector[0];
-            scaled_r_v[1] = lambda * render_vector[1];
-
-            if (edge_detected(scaled_r_v, x_pos, y_pos) ||
-                cyli_detected(scaled_r_v[0] + x_pos, scaled_r_v[1] + y_pos)) {
-                /* distance = ||scaled_r_v|| */
-                float distance =  hypot(scaled_r_v[0], scaled_r_v[1]);
-
-                /* greyscale luminosity of the wall by distance */
-                float shade = sqrt(SCR_D / (distance));
-
-                /* height of the wall to be drawn by distance */
-                float height_scale = 1 / (distance);
-
-                /* actual pixel height of height_scale */
-                int start_y = (int)(HEIGHT * 0.5 * (1 - 1.4 *
-                                               SCR_D * height_scale));
-                int stop_y  = (int)(HEIGHT * 0.5 * (1 + 1.4 *
-                                               SCR_D * height_scale));
-
-                /* keep start_y & stop_y inside the screen range */
-                if (start_y < 0)
-                    start_y = 0;
-                if (stop_y > HEIGHT)
-                    stop_y = HEIGHT;
-
-                /* draw the vertical line */
-                for (int y=0; y<HEIGHT; ++y) {
-                    if (start_y <= y && y < stop_y)
-                        pix_img[(HEIGHT-1-y)*WIDTH + pix] = render_shade(shade);
-                    else
-                        pix_img[(HEIGHT-1-y)*WIDTH + pix] = 0;
-                }
-                break;
-            }
-            lambda += 0.05;
+        if (edge_detected(scaled_r_v, pos[0], pos[1]) ||
+            cyli_detected(scaled_r_v[0] + pos[0], scaled_r_v[1] + pos[1])) {
+            draw_collision(scaled_r_v, x);
+            break;
         }
-        if (lambda >= 2 * MAP_X_SIZE / SCR_D) {
-            for (int y=0; y<HEIGHT; ++y)
-                pix_img[y*WIDTH + pix] = 0;
-        }
+        lambda += 0.05;
     }
+    if (lambda >= 2 * MAP_X_SIZE / SCR_D)
+        black_vline(x);
+}
+
+void draw_collision(const float scaled_r_v[2], uint x)
+{
+    /* distance = ||scaled_r_v|| */
+    float distance =  hypot(scaled_r_v[0], scaled_r_v[1]);
+
+    /* greyscale luminosity of the wall by distance */
+    float shade = sqrt(SCR_D / (distance));
+
+    /* height of the wall to be drawn by distance */
+    float height_scale = 1 / (distance);
+
+    /* actual pixel height of height_scale */
+    int start_y = (int)(HEIGHT * 0.5 * (1 - 1.4 *
+                                   SCR_D * height_scale));
+    int stop_y  = (int)(HEIGHT * 0.5 * (1 + 1.4 *
+                                   SCR_D * height_scale));
+
+    /* keep start_y & stop_y inside the screen range */
+    if (start_y < 0)
+        start_y = 0;
+    if (stop_y > HEIGHT)
+        stop_y = HEIGHT;
+
+    draw_vline(x, start_y, stop_y, shade);
+}
+
+void draw_vline(uint x, int start_y, int stop_y, float shade)
+{
+    Uint32 shade_u32 = render_shade(shade);
+    for (int y = 0; y < start_y; ++y)
+        pix_img[(HEIGHT-1-y)*WIDTH + x] = 0;
+    for (int y = start_y; y < stop_y; ++y)
+        pix_img[(HEIGHT-1-y)*WIDTH + x] = shade_u32;
+    for (int y = stop_y; y < HEIGHT; ++y)
+        pix_img[(HEIGHT-1-y)*WIDTH + x] = 0;
+}
+
+void black_vline(uint x)
+{
+    for (uint y = 0; y < HEIGHT; ++y)
+        pix_img[y * WIDTH + x] = 0;
 }
 
 bool edge_detected(float *v, float x0, float y0)
@@ -268,7 +292,7 @@ bool edge_detected(float *v, float x0, float y0)
 
 bool cyli_detected(float x, float y)
 {
-    for (int i = 0; i < CYLIS_NUM; ++i) {
+    for (uint i = 0; i < CYLIS_NUM; ++i) {
         if (hypot(cylis[i][0] - x, cylis[i][1] - y) < 0.2)
             return true;
     }
@@ -277,13 +301,15 @@ bool cyli_detected(float x, float y)
 
 Uint32 render_shade(float scale)
 {
-    Uint32 int_sc = 0xff & (Uint32)(scale*GREY_SC_LEN);
-    return (int_sc<<16) | (int_sc<<8) | int_sc;
+    /* [0, 1] -> [0, 255] & clamp */
+    Uint32 int_sc = 0xff & (Uint32)(scale * GREY_SC_LEN);
+    /* convert to RGB */
+    return (int_sc << 16) | (int_sc << 8) | int_sc;
 }
 
 void update_cylis(void)
 {
-    for (int i = 0; i < CYLIS_NUM; ++i) {
+    for (uint i = 0; i < CYLIS_NUM; ++i) {
         cylis[i][0] += RAND_FL(-1E-1, 1E-1);
         cylis[i][1] += RAND_FL(-1E-1, 1E-1);
     }
